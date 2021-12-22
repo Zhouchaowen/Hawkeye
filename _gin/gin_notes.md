@@ -1,3 +1,5 @@
+# Gin 0.x
+
 - NoRoute
 
 ```go
@@ -341,21 +343,272 @@ type Context struct {
 
 
 
+# Gin 1.3
+
+- Auth
+  - 注册Auth中间件 BasicAuth
+  - 注册正常逻辑
+  - 请求带上：Authorization的header头
+  - Realm 
+
+```go
+func TestBasicAuthSucceed(t *testing.T) {
+	accounts := Accounts{"admin": "password"}
+	router := New()
+	router.Use(BasicAuth(accounts))
+	router.GET("/login", func(c *Context) {
+		c.String(http.StatusOK, c.MustGet(AuthUserKey).(string))
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/login", nil)
+	req.Header.Set("Authorization", authorizationHeader("admin", "password"))
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "admin", w.Body.String())
+}
+
+```
+
+## binding
+
+- binding定义，各种类型的抽象
+
+```go
+type Binding interface {
+	Name() string
+	Bind(*http.Request, interface{}) error
+}
+```
+
+- 验证器的抽象
+
+```go
+type StructValidator interface {
+  .....
+}
+```
+
+- 绑定器实体
+
+```go
+var (
+	JSON          = jsonBinding{}
+	XML           = xmlBinding{}
+	Form          = formBinding{}
+	Query         = queryBinding{}
+	FormPost      = formPostBinding{}
+	FormMultipart = formMultipartBinding{}
+	ProtoBuf      = protobufBinding{}
+	MsgPack       = msgpackBinding{}
+)
+```
+
+## Render
+
+- Render提供不同类型的返回：
+  - application/json; charset=utf-8
+  - application/javascript; charset=utf-8
+  - application/json
+  - text/html; charset=utf-8
+  - .......
+
+```go
+// Render interface is to be implemented by JSON, XML, HTML, YAML and so on.
+type Render interface {
+	// Render writes data with custom ContentType.
+	Render(http.ResponseWriter) error
+	// WriteContentType writes custom ContentType.
+	WriteContentType(w http.ResponseWriter)
+}
+```
+
+```go
+var (
+	_ Render     = JSON{}
+	_ Render     = IndentedJSON{}
+	_ Render     = SecureJSON{}
+	_ Render     = JsonpJSON{}
+	_ Render     = XML{}
+	_ Render     = String{}
+	_ Render     = Redirect{}
+	_ Render     = Data{}
+	_ Render     = HTML{}
+	_ HTMLRender = HTMLDebug{}
+	_ HTMLRender = HTMLProduction{}
+	_ Render     = YAML{}
+	_ Render     = MsgPack{}
+	_ Render     = Reader{}
+	_ Render     = AsciiJSON{}
+	_ Render     = ProtoBuf{}
+)
+```
+
+- 重定向
+
+```go
+// Render (Redirect) redirects the http request to new location and writes redirect response.
+func (r Redirect) Render(w http.ResponseWriter) error {
+	// todo(thinkerou): go1.6 not support StatusPermanentRedirect(308)
+	// when we upgrade go version we can use http.StatusPermanentRedirect
+	if (r.Code < 300 || r.Code > 308) && r.Code != 201 {
+		panic(fmt.Sprintf("Cannot redirect with status code %d", r.Code))
+	}
+	http.Redirect(w, r.Request, r.Location, r.Code)
+	return nil
+}
+```
 
 
 
 
 
+## authPair
+
+- 认证中间件
+
+```go
+func BasicAuth(accounts Accounts) HandlerFunc
+	func BasicAuthForRealm(accounts Accounts, realm string) HandlerFunc 
+```
+
+- 编码
+
+```go
+func authorizationHeader(user, password string) string {
+	base := user + ":" + password
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(base))
+}
+```
 
 
 
+## Context
+
+- 在中间件之间传递变量，管理流，验证JSON的请求并呈现JSON例如响应
+
+```go
+type Context struct {
+  // 封装 http.ResponseWriter
+	writermem responseWriter
+	Request   *http.Request
+	Writer    ResponseWriter
+
+  // 保存url参数的切片
+	Params   Params
+	handlers HandlersChain
+	index    int8
+
+	engine *Engine
+
+	// Keys 专用于每个请求上下文的键/值对。
+	Keys map[string]interface{}
+
+	// Errors 是附加到所有使用此上下文的处理程序/中间件的错误列表。
+	Errors errorMsgs
+
+	// Accepted 定义了手动接受的内容协商格式列表。
+	Accepted []string
+}
+```
+
+- reset重置Context
+
+```go
+func (c *Context) reset() {
+	c.Writer = &c.writermem
+	c.Params = c.Params[0:0]
+	c.handlers = nil
+	c.index = -1
+	c.Keys = nil
+	c.Errors = c.Errors[0:0]
+	c.Accepted = nil
+}
+```
+
+- Copy 返回可以在请求范围之外安全使用的当前上下文的副本。 当必须将上下文传递给 goroutine 时，必须使用它
+
+```go
+func (c *Context) Copy() *Context {
+	var cp = *c
+	cp.writermem.ResponseWriter = nil
+	cp.Writer = &cp.writermem
+	cp.index = abortIndex
+	cp.handlers = nil
+	return &cp
+}
+```
+
+- Next 应该只在中间件内部使用。 它在调用处理程序内执行链中的挂起处理程序。压栈弹栈过程。
+
+```go
+func (c *Context) Next() {
+	c.index++
+	for s := int8(len(c.handlers)); c.index < s; c.index++ {
+		c.handlers[c.index](c)
+	}
+}
+
+// 终止方法
+func (c *Context) Abort() {
+	c.index = abortIndex
+}
+```
+
+- Query, PostForm, File, Multipart函数。
+
+- Bind函数(解析参数到结构体等的函数)。
 
 
 
+## gin
 
 
 
+```go
+type Engine struct {
+	RouterGroup
 
+	// 启用自动重定向，如果请求 /foo/ 但只有 /foo 的路由存在，则客户端将重定向到 /foo
+	RedirectTrailingSlash bool
+
+	// 修复当前请求路径
+	RedirectFixedPath bool
+
+	// 检查当前路由是否允许使用另一种方法
+	HandleMethodNotAllowed bool
+	ForwardedByClientIP    bool
+
+	// #726 #755 它将推送一些以“X-AppEngine ...”开头的标题，以便更好地与该 PaaS 集成。
+	AppEngine bool
+
+	// If enabled, the url.RawPath will be used to find parameters.
+	UseRawPath bool
+
+	// If true, the path value will be unescaped.
+	// If UseRawPath is false (by default), the UnescapePathValues effectively is true,
+	// as url.Path gonna be used, which is already unescaped.
+	UnescapePathValues bool
+
+	// Value of 'maxMemory' param that is given to http.Request's ParseMultipartForm
+	// method call.
+	MaxMultipartMemory int64
+
+	delims           render.Delims
+	secureJsonPrefix string
+	HTMLRender       render.HTMLRender
+	FuncMap          template.FuncMap
+	allNoRoute       HandlersChain
+	allNoMethod      HandlersChain
+	noRoute          HandlersChain
+	noMethod         HandlersChain
+  // 提升性能，保存Context
+	pool             sync.Pool
+  // 存储和匹配url的结构
+	trees            methodTrees
+}
+```
 
 
 
