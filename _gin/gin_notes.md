@@ -564,7 +564,7 @@ func (c *Context) Abort() {
 
 ## gin
 
-
+**框架核心**
 
 ```go
 type Engine struct {
@@ -610,11 +610,105 @@ type Engine struct {
 }
 ```
 
+- Use 添加中间件
+
+```go
+func (engine *Engine) Use(middleware ...HandlerFunc) IRoutes {
+	engine.RouterGroup.Use(middleware...)
+	engine.rebuild404Handlers()
+	engine.rebuild405Handlers()
+	return engine
+}
+```
+
+- addRoute 添加Handler到Tree结构
+
+```go
+func (engine *Engine) addRoute(method, path string, handlers HandlersChain)
+```
+
+- Run 启动http服务
+
+```go
+func (engine *Engine) Run(addr ...string) (err error) {
+	defer func() { debugPrintError(err) }()
+
+	address := resolveAddress(addr)
+	debugPrint("Listening and serving HTTP on %s\n", address)
+	err = http.ListenAndServe(address, engine)
+	return
+}
+```
+
+- **ServeHTTP** 实现httpserver接口，接收处理请求。
+  - 拿到Context
+  - 设置Context的参数，writer，req
+  - 重置 Params，handlers，index等参数
+  - 通过请求方式拿，找到给定HTTP方法的树的根 ServeHTTP
+    - 循环遍历获取对应method的root
+    - 获取参数 handlers, params, tsr := root.getValue(path, context.Params)
+      - 通过Next循环调用查找到的 HandlerFunc
+    - 获取不到 handlers
+      - 尝试走重定向(修正url，去除多余 / . 或者 ../ ./  大小写转换)
+      - 尝试不成功，就走 自定义NoRaute，NoMethod或serveError(context, 404, default404Body)
+  - 找不到Http对应method的根
+    - 走默认func serveError(c *Context, code int, defaultMessage []byte)
+    - 或走自定义 func (engine *Engine) NoMethod(handlers ...HandlerFunc)
+  - 返回，将Context放回pool **(就是想复用一个engine，避免多次创建)**
+
+```go
+func (engine *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	c := engine.pool.Get().(*Context)
+	c.writermem.reset(w)
+	c.Request = req
+	c.reset()
+
+	engine.handleHTTPRequest(c)
+
+	engine.pool.Put(c)
+}
+```
 
 
 
+## RouterGroup
 
+- 每组路由struct定义
 
+```go
+// RouterGroup is used internally to configure router, a RouterGroup is associated with
+// a prefix and an array of handlers (middleware).
+type RouterGroup struct {
+	Handlers HandlersChain
+	basePath string
+	engine   *Engine
+	root     bool
+}
+```
+
+- Use
+
+```go
+// Use adds middleware to the group, see example code in github.
+func (group *RouterGroup) Use(middleware ...HandlerFunc) IRoutes {
+	group.Handlers = append(group.Handlers, middleware...)
+	return group.returnObj()
+}
+```
+
+- Group
+
+```go
+// Group creates a new router group. You should add all the routes that have common middlwares or the same path prefix.
+// For example, all the routes that use a common middlware for authorization could be grouped.
+func (group *RouterGroup) Group(relativePath string, handlers ...HandlerFunc) *RouterGroup {
+	return &RouterGroup{
+		Handlers: group.combineHandlers(handlers),
+		basePath: group.calculateAbsolutePath(relativePath),
+		engine:   group.engine,
+	}
+}
+```
 
 
 
