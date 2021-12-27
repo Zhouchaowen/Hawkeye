@@ -712,6 +712,63 @@ func (group *RouterGroup) Group(relativePath string, handlers ...HandlerFunc) *R
 
 
 
+# GIN1.7
+
+企业级：模块依赖，服务发现，配置管理
+
+
+
+- httprouter
+
+- chi
+  - Router
+  - Middleware
+  - Context
+- gin
+- echo
+- fiber
+  - fasthttp
+- beego
+  - Router
+  - Filter(middleware)
+  - Context
+  - Task
+  - Orm,httpclient,Cache,validator,config,swagger,template
+
+
+
+微服务框架组件
+
+Config：配置管理组件
+
+Logger：遵守第三方日志收集规范的日志组件。必须统一
+
+Metrics：使框架能够与Prometheus 等监控系统集成的metrics组件
+
+Tracing：遵守OpenTelemetry的tracing组件
+
+Registry：服务发现组件
+
+MQ：可以切换不同队列实现的mq组件
+
+依赖注入：wire, dig 等组件
+
+
+
+goframe
+
+
+
+Go-Micro
+
+go-zero
+
+yoyogo
+
+Dubbo-go
+
+Kratos
+
 
 
 
