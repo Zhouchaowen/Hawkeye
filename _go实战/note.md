@@ -103,7 +103,7 @@ buffered （循环数组buf+发送队列sendq）
 
 读数据
 
-## Timer 死叉堆
+## Timer 四叉堆
 
 
 调整: 
@@ -126,7 +126,91 @@ work-stealing中，会从其它P那里偷timer
 
 runtime.sysmon中会为timer未被触发(timeSleepUntil)兜底,启动新线程
 
-9-54：45
+
 
 ## Map
+
+![image-20211227203907453](/Users/zdns/Library/Application Support/typora-user-images/image-20211227203907453.png)
+
+map添加
+
+
+
+map扩容
+
+
+
+map访问
+
+缺陷：map没法缩容量
+
+
+
+**频繁分配的场景用sync.Pool重用**
+
+
+
+## Context
+
+![image-20211227205938348](/Users/zdns/Library/Application Support/typora-user-images/image-20211227205938348.png)
+
+在父子之间传递
+
+
+
+https://mr-dai.github.io/mit-6824-lab1/
+
+https://juejin.cn/post/6939447065357320206
+
+https://siegelion.cn/2021/09/24/MIT%206.824-Lab%201/
+
+http://guodong.plus/2020/1227-214432/
+
+https://zou.cool/2018/11/27/mapreduce/
+
+
+
+# Go的系统调用
+
+syscall
+
+- sysnb
+  - RawSyscall
+  - RawSyscall6
+- sys
+  - Syscall
+  - Syscall6
+
+# 内存分配与垃圾回收
+
+## 分配器
+
+虚拟内存布局
+
+
+
+**Allocator**
+
+- First-Fit
+
+- Next-Fit
+
+- Best-Fit
+
+- Segregated-Fit
+
+**Malloc**
+
+- brk：调整prograbreak
+- mmap
+
+**Dangling Pointer**问题
+
+## 内存分配
+
+分配大小分类
+
+- Tiny：size<16  && has no pointer nscan
+- Small: has pointer(scan) || size >= 16b && size <= 32kb
+- Large: size > 32KB
 
