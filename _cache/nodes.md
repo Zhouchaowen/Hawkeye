@@ -34,6 +34,20 @@ fastcache为什么快，因为用了这些手段：
    - map类型的key和value都是整形，容量小，且对GC友好
    - 淘汰用轮换的方法+固定次数的set后再清理，解决了（或者说绕开了）碎片的问题
 
+优点
+
+- 快速地。多核 CPU 上的性能可扩展。请参阅下面的基准测试结果。
+- 线程安全。并发 goroutine 可以读取和写入单个缓存实例。
+- fastcache 设计用于在没有GC 开销的情况下存储大量条目 。
+- 当达到创建时设置的最大缓存大小时，Fastcache 会自动驱逐旧条目。
+- 简单的 API。
+- 简单的源代码。
+- 缓存可以保存到文件 并从文件加载。
+
+
+
+
+
 
 
 ## BigCache
@@ -166,6 +180,27 @@ set操作为什么高效
 
 
 
+key过期
+
+- 对于过期的数据，freecache会让它继续存储在RingBuf中，RingBuf从一开始初始化之后，就固定不变了，是否删掉数据，对RingBuf的实际占用空间不会产生影响。
+- 当get到一个过期缓存时，freecache会删掉缓存的entry索引（但是不会将缓存从RingBuf中移除），然后对外报ErrNotFound错误。
+- 当RingBuf的容量不足时，会从环头开始遍历，如果key已经过期，这时才会将它删除掉。
+- 如果一个key已经过期时，在它被freecache删除之前，如果又重新set进来（过期不会主动删除entry索引，理论上有被重新set的可能），过期的entry容量充足的情况下，则会重新复用这个entry。
+- freecache这种过期机制，一方面减少了维护过期数据的工作，另一方面，freecache底层存储是采用数组来实现，要求缓存数据必须连续，缓存过期的剔除会带来空间碎片，挪动数组来维持缓存数据的连续性不是一个很好的选择。
+
+freecache的不足
+
+- 需要一次性申请所有缓存空间。用于实现segment的RingBuf切片，从缓存被创建之后，其容量就是固定不变的，申请的内存也会一直被占用着，空间换时间，确实避免不了。
+- freecache的entry置换算法不是完全LRU，而且在某些情况下，可能会把最近经常被访问的缓存置换出去。
+  entry索引切片slotsData无法一次性申请足够的容量，当slotsData容量不足时，会进行空间容量x2的扩容，这种自动扩容机制，会带来一定的性能开销。
+- 由于entry过期时，不会主动清理缓存数据，这些过期缓存的entry索引还会继续保存slot切片中，这种机制会加快entry索引切片提前进行扩容，而实际上除掉这些过期缓存的entry索引，entry索引切片的容量可能还是完全充足的。
+- 为了保证LRU置换能够正常进行，freecache要求entry的大小不能超过缓存大小的1/1024，而且这个限制还不给动态修改，具体可以参考github上的issues。
+
+使用freecache的注意事项
+
+- 缓存的数据如果可以的话，大小尽量均匀一点，可以减少RingBuf容量不足时的置换工作开销。
+- 缓存的数据不易过大，这样子才能缓存更多的key，提高缓存命中率。
+
 
 
 参考：
@@ -174,6 +209,15 @@ https://blog.csdn.net/chizhenlian/article/details/108435024
 
 https://www.cxybb.com/article/baidu_32452525/118199343
 
+https://juejin.cn/post/7072121084136882183
+
+
+
+1.上线字典表替代方案
+
+2.资产管理开发完成
+
+3.开发资产统计
 
 
 
@@ -190,21 +234,20 @@ https://www.cxybb.com/article/baidu_32452525/118199343
 
 
 
-fghibbbbccccddde
 
-fghibbbbc-----------
 
-fghibbbbc---e------
 
-fghibbbbc---efgh
 
-ighibbbbc---efgh
 
-fghibbbbccccedde
 
-fghibbbbccccefgh
 
-ighibbbbccccefgh
+
+
+
+
+
+
+
 
 
 
