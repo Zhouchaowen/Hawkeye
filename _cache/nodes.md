@@ -74,6 +74,7 @@ bigcache的作者在开发项目时需要用到缓存，并有一些需求：
 首先，为了满足百万的缓存对象也要非常快，需要选择一个合适的数据结构。map就是一个非常不错的的结构，可以通过O(1)的时间复杂度获取数据。示例如下：
 
 ```go
+
 ```
 
 如上通过map存储数据，在数据量比较大并发比较高的时候会延长 GC 时间，增加访问缓存的延迟，增加内存分配次数。应为`string` 实际上底层数据结构是由两部分组成，其中包含指向字节数组的指针和数组的大小：
@@ -93,7 +94,35 @@ type StringHeader struct {
 1. 可以考虑让我们存储数据的结构直接不被扫描，那就不会有停顿了。因为垃圾回收器检查的是堆上的资源，如果不把数据放在堆上，不就解决这个问题了吗？（代表：offheap）但堆外内存很容易产生内存泄漏。
 2. 可以利用Go 1.5中修复的一个issue([#9477](https://github.com/golang/go/issues/9477)), 这个issue描述了Go的开发者优化了垃圾回收时对于map的处理，如果map对象中的key和value不包含指针，那么GC 便会忽略这个 map
 
-其次，要支持大并发访问就要降低并发冲突。降低并发冲突可以通过分片做到，当写入数据时可以通过hash函数和取余运算，将数据分配到不同的分片上，每个分片都有各自的读写锁，各个分片互不影响，这大大降低了并发冲突。
+其次，数据都是共享的要支持并发访问就要加锁访问，当大并发访问时大量的锁冲突会降低访问效率。我们要做的是尽量避免冲突，降低并发冲突可以通过分片做到，当写入数据时可以通过hash函数和取余运算，将数据分配到不同的分片上，每个分片都有各自的读写锁，各个分片互不影响，这大大降低了并发冲突。
+
+
+
+bigcache就是利用这些特性，首先bigcache内存结构包含一个分片数组。 每个分片有自己的存储结构(一个大循环[]bytes用来存储实际数据)，索引结构(map[uint64\]\[uint32]保存索引,key存储数据相关的hash值，value存储数据实际存储在[]bytes中的偏移量)和读写锁。
+
+
+
+set流程
+
+
+
+
+
+get流程
+
+
+
+
+
+删除回调流程
+
+
+
+
+
+
+
+
 
 
 
@@ -124,7 +153,7 @@ type StringHeader struct {
 
 3. 分片解决并发竞争：bigCache 中使用了分片技术。创建 `N` 个 shard，每个 shard 包含一个带锁的 `cacheShard`，bigCache 将数据分散到不同的 `cacheShard` 进行存储。当从缓存中读写数据时，根据 `HashFunc(key)%N` 选择其中一个 `cacheShard` ，获取缓存锁 `cacheShard.lock`，这样可以大幅降低并发过程中的锁粒度。
 4. [ ]byte+map\[uint64\]\[ uint64\]规避GC：从 bigCache 的 `cacheShard` 结构来看，使用了 `map[uint64]uint32` 结构，其中 key 和 value 均无指针结构，其中 value 会追加到一个全局的 `[]byte` 中，每一个 shard 中包含一个全局 `[]byte` 类型的结构 `queue.BytesQueue`。由于此字节切片除了自身对象不包含其他指针，所以 GC 对于整个 `cacheShard` 的标记时间是 `O(1)`
-5. 
+5. `string`, `slice`和`time.Time`都包含指针。
 
 
 
@@ -157,11 +186,23 @@ https://zhuanlan.zhihu.com/p/487455942
 
 
 
+https://blog.csdn.net/xingwangc2014/article/details/86548130
+
+https://zhuanlan.zhihu.com/p/404334020
+
+https://www.jdon.com/52554
+
+https://github.com/bg5sbk/go-labs
 
 
 
+bigcache
 
+https://mp.weixin.qq.com/s/URiURNrXHUYP1v2Q50i7Bg
 
+https://medium.com/codex/our-go-cache-library-choices-406f2662d6b
+
+https://blog.csdn.net/weixin_33519829/article/details/112098752
 
 
 
