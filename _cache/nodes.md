@@ -79,13 +79,13 @@ fastcache为什么快，因为用了这些手段：
 
 我来了解它的常用功能后，再来看看它是怎么设计的。
 
-
-
-- 数据结构
+- 数据结构设计
 - 核心特点
-  - 分片
-  - hashmap
-  - []byte
+  - 为什么要分片（降低并发冲突）
+  - 为什么要用map存储索引位置。（减少gc时间）
+  - 为什么要用[]byte存储数据（适配map存储偏移量）
+
+
 
 
 
@@ -102,7 +102,7 @@ bigcache的作者在开发项目时需要用到缓存，并有一些需求：
   - 第 99.999 个百分位数为 400 毫秒
 - 其它.....
 
-为了满足这些要求，缓存本身需要:
+缓存本身需要满足的要求:
 
 - 即使有百万的缓存对象也要非常快。
 - 支持大并发访问。
@@ -241,9 +241,11 @@ https://medium.com/codex/our-go-cache-library-choices-406f2662d6b
 
 https://blog.csdn.net/weixin_33519829/article/details/112098752
 
+http://sarailqaq.org.cn/2020/12/06/%E8%BF%9B%E7%A8%8B%E5%86%85%E7%BC%93%E5%AD%98bigcache/
 
 
 
+https://go.cyub.vip/concurrency/sync-rwmutex.html
 
 
 
