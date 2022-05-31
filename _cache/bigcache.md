@@ -15,9 +15,148 @@
 
 介绍完了它的有点后，我们来看一下它是怎么用的。
 
-- 
-- 
-- 
+### 2-1.基础Set/Get
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/allegro/bigcache/v3"
+	"time"
+)
+
+func main() {
+	cache, _ := bigcache.NewBigCache(bigcache.DefaultConfig(10 * time.Minute))
+
+	cache.Set("my-unique-key", []byte("value"))
+
+	cache.Set("my-unique-key", []byte("value1")) // key 冲突覆盖value
+
+	entry, _ := cache.Get("my-unique-key")
+	fmt.Println(string(entry))
+}
+```
+
+### 2-2.基础Append
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/allegro/bigcache/v3"
+	"time"
+)
+
+func main() {
+	cache, _ := bigcache.NewBigCache(bigcache.DefaultConfig(10 * time.Minute))
+
+	cache.Set("my-unique-key", []byte("value1"))
+
+	cache.Append("my-unique-key", []byte("value2"))
+
+	cache.Append("my-unique-key", []byte("value3"))
+
+	entry, _ := cache.Get("my-unique-key")
+	fmt.Println(string(entry))
+}
+```
+
+### 2-3.过期删除
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/allegro/bigcache/v3"
+	"time"
+)
+
+func main() {
+	cache, _ := bigcache.NewBigCache(bigcache.DefaultConfig(1 * time.Second))
+
+	// when
+	cache.Set("key", []byte("value"))
+	<-time.After(3 * time.Second)
+	value, err := cache.Get("key")
+	if err != nil {
+		fmt.Println(err.Error())
+	} else {
+		fmt.Println(string(value))
+	}
+}
+```
+
+### 2-4.定时清理
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/allegro/bigcache/v3"
+	"time"
+)
+
+func main() {
+	cache, _ := bigcache.NewBigCache(bigcache.Config{
+		Shards:             4,
+		CleanWindow:        time.Second,
+		MaxEntriesInWindow: 1,
+		MaxEntrySize:       256,
+	})
+
+	// when
+	cache.Set("key", []byte("value"))
+	<-time.After(3 * time.Second)
+	value, err := cache.Get("key")
+	if err != nil {
+		fmt.Println(err.Error())
+	} else {
+		fmt.Println(string(value))
+	}
+}
+```
+
+### 2-5.删除回调
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/allegro/bigcache/v3"
+	"time"
+)
+
+func main() {
+	onRemove := func(key string, entry []byte) {
+		fmt.Printf("key:%s,vaule:%s removed\n", key, entry)
+	}
+
+	cache, _ := bigcache.NewBigCache(bigcache.Config{
+		Shards:             4,
+		CleanWindow:        time.Second,
+		MaxEntriesInWindow: 1,
+		MaxEntrySize:       256,
+		OnRemove:           onRemove,
+	})
+
+	// when
+	cache.Set("key", []byte("value"))
+	<-time.After(3 * time.Second)
+	value, err := cache.Get("key")
+	if err != nil {
+		fmt.Println(err.Error())
+	} else {
+		fmt.Println(string(value))
+	}
+}
+```
+
+## 3.设计思想
 
 介绍完它是怎么应用的后，再来看看它是怎么设计的。首先我们来看一下它的存储结构
 
@@ -74,7 +213,7 @@ func (c *BigCache) getShard(hashedKey uint64) (shard *cacheShard) {
 
 ![image-20220527174032570](./img/image-20220527174032570.png)
 
-### 2-1.详细Set流程
+### 3-1.详细Set流程
 
 ![image-20220530092728558](./img/image-20220530092728558.png)
 
@@ -213,7 +352,7 @@ func (s *cacheShard) removeOldestEntry(reason RemoveReason) error {
 1. 写入当前时间`timestamp`占`8`位。
 2. 写入`hashedKey`占`8`位
 3. 写入`KeyLength`长度占`2`位
-4. 写入`Key`值占`n`位
+4. 写入`Key`值占`KeyLength`位
 5. 写入`entry (Value)` 值占`m`位
 
 ```go
@@ -260,7 +399,7 @@ for { // 循环尝试添加条目到切片末尾，添加失败尝试驱逐
 
 包装好条目后，将条目写入到分片的队列里；写入队列成功后再在`hashmap`上建立`hashedKey`对应的索引(`offset`)并返回；添加失败，则尝试剔除旧数据，循环如上步骤。
 
-### 2-2.详细Get流程
+### 3-2.详细Get流程
 
 ![image-20220530155306178](./img/image-20220530155306178.png)
 
@@ -288,7 +427,8 @@ func (s *cacheShard) get(key string, hashedKey uint64) ([]byte, error) {
 		s.lock.RUnlock()
 		s.collision()
 		if s.isVerbose {
-			s.logger.Printf("Collision detected. Both %q and %q have the same hash %x", key, entryKey, hashedKey)
+			s.logger.Printf("Collision detected. Both %q and %q have the same hash %x", 
+                            key, entryKey, hashedKey)
 		}
 		return nil, ErrEntryNotFound
 	}
@@ -323,17 +463,15 @@ func (s *cacheShard) getWrappedEntry(hashedKey uint64) ([]byte, error) {
 
 在通过包裹条目wrappendEntry获取entryKey对比key是否相等。在通过包裹条目wrappendEntry获取entry并返回
 
-## 3.设计思想
+### 3-3.核心问题
 
-我来了解它的常用功能后，再来看看它是怎么设计的。
+了解Set/Get流程后，再来看看bigcache解决的几个。
 
-- 数据结构设计
-- 核心特点
-  - 为什么要分片（降低并发冲突）
-  - 为什么要用map存储索引位置。（减少gc时间）
-  - 为什么要用[]byte存储数据（适配map存储偏移量）
+- 为什么要分片（降低并发冲突）
+- 为什么要用map存储索引位置。（减少gc时间）
+- 为什么要用[]byte存储数据（适配map存储偏移量）
 
-### 3-1.map[uint64]uint32 (绕过GC)
+#### 3-3-1.map[uint64]uint32 (绕过GC)
 
 缓存的实现离不开以下几种：
 
@@ -346,9 +484,8 @@ func (s *cacheShard) getWrappedEntry(hashedKey uint64) ([]byte, error) {
 1. 当 `map` 中存在大量 keys 时，GC 扫描 `map` 产生的停顿将不能忽略（针对 `map` 中存储带有指针类型的场景，列1）
 2. 加锁的粒度不好控制
 
-列1：
-
 ```go
+// 列1
 package main
 
 import (
@@ -512,7 +649,7 @@ With a plain slice ([]string), GC took 306.468481ms
 
 如上通过map存储数据，在数据量比较大的时候会增加 GC 时间，导致访问缓存延迟。
 
-用[]\[string]为例：因为`string` 底层数据结构是由两部分组成，其中包含指向字节数组的指针和数组的大小：
+用[]string为例：因为`string` 底层数据结构是由两部分组成，其中包含指向字节数组的指针和数组的大小：
 
 ```go
 type StringHeader struct {
@@ -521,7 +658,7 @@ type StringHeader struct {
 }
 ```
 
-由于 `StringHeader`中包含指针，所以每次 GC 的时候都会扫描每个指针，那么在这个巨大的 `map`中是包含了非常多的指针的，在扫描时就会造成了巨大的资源消耗。
+由于 `StringHeader`中包含指针，所以每次 GC 的时候都会扫描每个指针，那么在这个巨大的 `Slice`中是包含了非常多的指针的，在扫描时就会消耗许多时间。
 
 ![image-20220530155306178](./img/image-20220530155306179.png)
 
