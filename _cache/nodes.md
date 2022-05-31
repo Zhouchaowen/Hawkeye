@@ -249,27 +249,390 @@ https://go.cyub.vip/concurrency/sync-rwmutex.html
 
 
 
-好，今天我们学习一下 big 对，其他它是一个 Golang 的缓存库。然后这个缓存库它有什么优点呢？他支持存储百万的缓存条目，也非常快。然后它支持大并发访问，然后支持在一定时间后剔除条目，并且它是几乎没有 GC 的。然后我们先来看一下它是怎么用的。首先基础用法，就我们我们先把这个包引进来，然后别开始简历，然后另一个别开启另一个开始实力。然后我们需要给他传一个默认的配置参数，这配置参数有一个有一个参有一个有一个入参。这入差是它的过期时间，这个过期时间是作用于每一条，这个过去时间其实就作用于每一条条目的，它就是一个全局的这个开启它不支持配单个条目的过期时间。所以说差你这里设置了 10 分钟，它就是所有的全局的条目都是 10 分钟过期。然后创建好了过后我们就 set 一个 key value 进去，然后我们再 set 一个相同的 key 不同的 value 进去，然后我们去获取这个 key 然后得到这个条目，这个就这条目这个 value 这个值。
-好，首先我们来执行一下，而执行了过后，我们可以发现给我们获取的 value 是 value 1，它并不是 value 这就说明了我们在设置 key 值，我们如果 key 相同的话，它的值会不会覆盖后有后面设置的会把前面的覆盖，而这可以理解为它哈希充足的时候它是覆盖值的。
-好。然后我们第二个如果想不覆盖它怎么做呢？其中这里我们就不用 set 我们就 append 我们第一个先 set 一个 value 以及进去，然后 append value 获取了值，他就是。而这里其实他就是在追加进去的。如果说你这个相同的 K 又 append 设置进去了，就是往末尾追加，导致他的第二个 demo 第三个是我们的过去时间他是怎么搞的？如果我们在设置默认配置参数的时候，我们传一秒钟，这一秒钟就是说他所有的 K 所有的所有的条目，所有的反成条目它都是一秒钟就失效了。这个我们来试验一下。就是说我们设置 K 的设置 value 两次经过，等过了 3 秒钟我们再去获取这个 key 我们发现它是 note found 所以说这个条目就它在 1 秒过后它失效了，我们在获取的时候它就不能获取到了。
-然后还有一个参数，就是可能的 window 这个要怎么理解卡他们的意思就是说我们多久去清除一次这个条目？我们多久去清除条目？这个怎么？也就是说我们在设置一条一条的条目的一个一个的缓存的时候，设置好过后这个每个缓存它都有一个过期时间，我们柯南的 window 就是多久去扫描一次这些条目的，然后并把过期的把它剔除好。
-这里同样我们一个 key 一个 value 然后我们设置一个我们等 3 秒，然后再获取。它同样是 load 泛了的，因为我们这个 window 是配置了过后，它是在内部，你 6 这个被 catch 的时候，它会在 6 的时候它会启动一个 grooting 然后去定时的去执行，每间隔一秒钟他就执行轻触动作。
-然后下一个 demo 是说我们的删除回调，我们删除的时候可能有些业务场景需要说我们删除这个条目的时候执行一个回调函数。好这个回调函数它是固定型号，就必须有传入一个 key 和一个 K 就是我们设置 K 这个 byte 数据就是我们设置的值。好，然后我们看下面怎么用。同样我们设置一个每一秒钟清除一次。首先我们设置一个 key 和 V 的形式，然后我们等待 3 秒，然后它就它会自动做水晶这种只是一个清楚的操作，然后执行这个回调你函数的方法。然后当我们再获取 K 的时候，他其实就是被删除了。然后最后一个是我们的也是一个删除轨道，只是说这个删除轨道它是带一个信息的，就是说这个条目是为什么被删除的。我们这个删除的里面它其实有三种状态的。第一种是过期删除，第二种是没有空间 no base no space 它就会删除。第三种是我们自己删除的。所以说它有三种删除，不懂用法方式删除。
-在我们讲完了它是怎么应用，它的常用方法如何？再来了解一下它是怎么设计怎么实现这些功能的。首先我们来看一下它的基本的数，它这个设计的数结构，并看起来他其实是以叉结构，首先是 catch 里面的结构，它首先是把它这个结构分片，就是说我们看前面他可能有很多个分片，而且他是 2.0 磁场读取时候，它每一个分片里面保存了，每一个分片里面它保存了一个存储数据的和一个存储索引的 map 结构。
-他是怎么实现索引数据就是说当我们的数据写进来的时候，我们通过 K 值计算一个哈希值，然后去和他的分片数量取余，求找到他的分片数的下标，然后我们去找对应的那个分片，找到那个对应的分片过后，然后我们再通通过这个 key 获取，再通过这个 key 在 map 索引结构里面获取一个偏移量，这偏移量就是我们的 banner 值在这个这个二进制数组在这个 byte 数组里面的偏移量，然后获取到这个片子，我们就可以从这个二进制从这个数字里面把我们的这个 values 取出来。其实所以说他大概就是一个这样的解决构，就是他自然结构。然后下面我们来仔细分析一下她具体的流程是什么。
-首先我们看一下 set 流程，其实它就是当我们的 K 和 value 进来的时候，我们的 K 会首先计算出一个哈希 K 值，然后我们通过这哈希 K 值找到我们的分片我们是哪一个分片上我们可能找到的是第三个分片，找到三分片 3 号分片。然后找到分片过后，我们可以他要找这个分片，然后找到分片之后我们这个是个 value 值。
-找到他的分片之后，我们通过这个 case 再去查找。我们通过这个 key 获取 map 里面的偏移量。获取到偏移量过后我们会检查我们这个 case 会希冲突是否在，是否在，我们这 case 不存在。然后如果存在的话我们可能会存在的话，我们会驱逐。
-我们会检查是否冲突，如果冲突的话我们会自控索引数据，然后删除索引。然后并且我们会查看一下当前分片有没有可以被驱逐的数据。如果有的人就顺便把它驱逐了。然后我们会把我们的 values 包裹成一个条目。这个条目是由什么组成？是有一个八个字节的。首先它是有 8 个字节的时间戳，再加上 8 个字节的哈希，再加上两个直接的 kid 长度，再加上 kid 可以自己的 K 长度字节的 K 值和 M 字节的 value 值。
-那有这个后，我们会 push 把它加入到我们的存储数据真实存储数据的半数里面。然后会再封装一次。封装的时候就把我们的会加入我们的整个上一步封装条目的长度，就是他可能是 1 到 5 字节的总长度，然后把它加在头上，然后把它写到我们的二进制数组二进制 byte 数据里面，把它写到我们的 byte 数里面。
-写入了过后，我们再把这个写入的偏移量保存到 map 结构里面。好这里，然后整个写入流程就这样结束了。当然这里还有一些细节，当他写入的时候，他可能会再去做一些清除，造成如果说这里的写入的时候他的空间不足了，它其实就会去删除一部分空间，然后再移动一些骗一样，然后从头开始取。
+
+
+今天我们学习一下 bigcache，它是一个 Golang 的缓存库。
+
+这个缓存库它有什么优点呢？
+
+- 他支持存储百万的缓存条目也非常快；
+- 支持大并发访问；
+- 支持在一定时间后剔除条目，并且它是几乎没有 GC 。
+
+介绍完了它的有点后，我们来看一下它是怎么用的。
+
+- 
+-  
+- 
+
+介绍完它是怎么应用的后，再来看看它是怎么设计的。首先我们来看一下它的存储结构
+
+![image-20220527105408931](/Users/zdns/Library/Application Support/typora-user-images/image-20220527105408931.png)
+
+首先整个cache 包含了n个分片的指针数组(容量必须是2的n次幂,这涉及到分片运算)，每一个分片就是一个cacheShard，里面保存了存储数据的queue([]byte)和存储索引的 map 结构。
+
+```go
+type BigCache struct {
+	shards     []*cacheShard // hash分片
+	lifeWindow uint64        // 全局过期时间
+	clock      clock
+	hash       Hasher // hash函数
+	config     Config
+	shardMask  uint64 // 最大分片数
+	close      chan struct{}
+}
+
+type cacheShard struct {
+	hashmap     map[uint64]uint32 // 存储索引的哈希表 (0 GC)
+	entries     queue.BytesQueue  // 存储数据的具体数据结构
+	lock        sync.RWMutex
+	entryBuffer []byte           // 复用切片，用于减少分配
+	onRemove    onRemoveCallback // 删除回调
+
+	isVerbose    bool
+	statsEnabled bool
+	logger       Logger
+	clock        clock  // 生成时间戳 时钟
+	lifeWindow   uint64 // 条目驱除全局时间
+
+	hashmapStats map[uint64]uint32 // 存储状态的哈希表
+	stats        Stats             // 当前分片的缓存状态
+}
+```
+
+![image-20220527173723689](/Users/zdns/Library/Application Support/typora-user-images/image-20220527173723689.png)
+
+Set流程：当数据写如bigcache时候，通过 Key 值计算一个哈希值(hashKey)，然后通过hashKey去和他的分片数量取余找到对应的分片下标，然后获取对应的分片(cacheShard)
+
+```go
+func (c *BigCache) Set(key string) ([]byte, error) {
+	hashedKey := c.hash.Sum64(key)
+	shard := c.getShard(hashedKey)
+	return shard.set(key, hashedKey)
+}
+
+func (c *BigCache) getShard(hashedKey uint64) (shard *cacheShard) {
+	return c.shards[hashedKey&c.shardMask]
+}
+```
+
+找到那个对应的分片后，再通过这个 hashkey 获取 hashmap 对应的偏移量，通过这个偏移量就可以获取byte 数组对应的缓存条目。
+
+![image-20220527174032570](/Users/zdns/Library/Application Support/typora-user-images/image-20220527174032570.png)
+
+### 详细Set流程
+
+![image-20220530092728558](/Users/zdns/Library/Application Support/typora-user-images/image-20220530092728558.png)
+
+**第一步：获取分片**
+
+```go
+// Set saves entry under the key
+func (c *BigCache) Set(key string, entry []byte) error {
+	hashedKey := c.hash.Sum64(key)
+	shard := c.getShard(hashedKey)
+	return shard.set(key, hashedKey, entry)
+}
+```
+
+![image-20220530114601342](/Users/zdns/Library/Application Support/typora-user-images/image-20220530114601342.png)
+
+首先创建一个cache实例，通过Set写入key, value：
+
+```go
+// given
+cache, _ := NewBigCache(DefaultConfig(5 * time.Second))
+
+// when
+cache.Set("key", []byte("value"))
+```
+
+通过hash函数获取key的哈希值hashedKey：
+
+```go
+hashedKey := c.hash.Sum64(key)
+```
+
+通过hashedKey和分片个数 & 获取对应分片，由图可知我们找到3号分片。
+
+```go
+func (c *BigCache) getShard(hashedKey uint64) (shard *cacheShard) {
+	return c.shards[hashedKey&c.shardMask]
+}
+```
+
+**第二步：检查冲突**
+
+```go
+......
+s.lock.Lock()
+
+// 通过hashedKey获取s.hashmap的索引
+if previousIndex := s.hashmap[hashedKey]; previousIndex != 0 { 
+  // 通过索引获取对应条目
+  if previousEntry, err := s.entries.Get(int(previousIndex)); err == nil {
+    // 这个用到了slice的特性，切片持有源数据地址，修改切片会导致改源数组
+    resetKeyFromEntry(previousEntry) 
+    //remove hashkey
+    delete(s.hashmap, hashedKey)
+  }
+}
+......
+```
+
+![image-20220530115159341](/Users/zdns/Library/Application Support/typora-user-images/image-20220530115159341.png)
+
+获取到对应的分片后，首先通过hashedKey去获取分片内hashmap存储的索引（数据偏移量）；如果获取到索引不为0，表明当前hashedKey存在对应的值（存在hash冲突）；
+
+```go
+if previousIndex := s.hashmap[hashedKey]; previousIndex != 0 { 
+  	........
+}
+```
+
+当存在hash冲突，则通过索引获取对应数据片段的引用并将该片段值置为空，并删除hashmap存储的索引；
+
+```go
+// 通过索引获取对应条目
+if previousEntry, err := s.entries.Get(int(previousIndex)); err == nil {
+  // 这个用到了slice的特性，切片持有源数据地址，修改切片会导致改源数组
+  resetKeyFromEntry(previousEntry) 
+  //remove hashkey
+  delete(s.hashmap, hashedKey)
+}
+```
+
+**第三步：剔除过期数据**
+
+检查hash冲突后，尝试剔除当前分片上的一条过期条目。首先从队列获取队尾数据（最老的条目），然后调用删除事件，并传入删除回调函数`removeOldestEntry`。
+
+```go
+if oldestEntry, err := s.entries.Peek(); err == nil { // 尝试驱逐过期条目，触发删除回调
+  s.onEvict(oldestEntry, currentTimestamp, s.removeOldestEntry)
+}
+```
+
+删除事件会通过当前时间和条目的存储时间求差值，然后和全局统一过期设置做对比判断是否需要删除。
+
+```go
+// 驱逐
+func (s *cacheShard) onEvict(oldestEntry []byte, currentTimestamp uint64, 
+                             evict func(reason RemoveReason) error) bool {
+	oldestTimestamp := readTimestampFromEntry(oldestEntry)// 获取条目的存储时间
+	if currentTimestamp-oldestTimestamp > s.lifeWindow { // 判断过期窗框
+		evict(Expired) // 删除事件[evict -> removeOldestEntry]
+		return true
+	}
+	return false
+}
+```
+
+确认过期，执行删除回调函数`removeOldestEntry`。
+
+```go
+// 删除最旧的条目，如果条目的hash被清空，则不执行删除回调
+func (s *cacheShard) removeOldestEntry(reason RemoveReason) error {
+	oldest, err := s.entries.Pop() // 获取并删除最近的条目
+	if err == nil {
+		hash := readHashFromEntry(oldest) // 获取条目的hashedKey值
+		if hash == 0 {
+			// entry has been explicitly deleted with resetKeyFromEntry, ignore
+			return nil
+		}
+		delete(s.hashmap, hash) // 从hashmap中移除hashedKey对应的索引
+		s.onRemove(oldest, reason) // 执行自定义回调函数
+		if s.statsEnabled { // 统计
+			delete(s.hashmapStats, hash)
+		}
+		return nil
+	}
+	return err
+}
+```
+
+**第四步：包装Value生成条目**
+
+![image-20220530135426295](/Users/zdns/Library/Application Support/typora-user-images/image-20220530135426295.png)
+
+尝试剔除一条旧条目后，开始包装条目，写入`buffer`；`buffer`是一个可复用的`[]byte`，可以减少内存分配。
+
+1. 写入当前时间`timestamp`占`8`位。
+2. 写入`hashedKey`占`8`位
+3. 写入`KeyLength`长度占`2`位
+4. 写入`Key`值占`n`位
+5. 写入`entry (Value)` 值占`m`位
+
+```go
+// |  8 bytes  |  8 bytes  |  2 bytes  | n byte | m bytes |
+// | timestamp | hashValue | KeyLength |   Key  |  entry  |
+func wrapEntry(timestamp uint64, hash uint64, key string, entry []byte,
+               buffer *[]byte) []byte {
+	keyLength := len(key)
+	blobLength := len(entry) + headersSizeInBytes + keyLength
+
+	if blobLength > len(*buffer) {
+		*buffer = make([]byte, blobLength)
+	}
+	blob := *buffer
+
+	binary.LittleEndian.PutUint64(blob, timestamp)
+	binary.LittleEndian.PutUint64(blob[timestampSizeInBytes:], hash)
+	binary.LittleEndian.PutUint16(blob[timestampSizeInBytes+hashSizeInBytes:],
+                                uint16(keyLength))
+	copy(blob[headersSizeInBytes:], key)
+	copy(blob[headersSizeInBytes+keyLength:], entry)
+
+	return blob[:blobLength]
+}
+```
+
+**第五步：尝试写入**
+
+![image-20220530152524241](/Users/zdns/Library/Application Support/typora-user-images/image-20220530152524241.png)
+
+```go
+for { // 循环尝试添加条目到切片末尾，添加失败尝试驱逐
+  if index, err := s.entries.Push(w); err == nil {
+    s.hashmap[hashedKey] = uint32(index)
+    s.lock.Unlock()
+    return nil
+  }
+  if s.removeOldestEntry(NoSpace) != nil { // 尝试驱逐过期条目
+    s.lock.Unlock()
+    return fmt.Errorf("entry is bigger than max shard size")
+  }
+}
+```
+
+包装好条目后，将条目写入到分片的队列里；写入队列成功后再在`hashmap`上建立`hashedKey`对应的索引(`offset`)并返回；添加失败，则尝试剔除旧数据，循环如上步骤。
+
+### 详细Get流程
+
+![image-20220530155306178](/Users/zdns/Library/Application Support/typora-user-images/image-20220530155306178.png)
+
+**第一步：获取分片同上**
+
+```go
+func (c *BigCache) Get(key string) ([]byte, error) {
+	hashedKey := c.hash.Sum64(key)
+	shard := c.getShard(hashedKey)
+	return shard.get(key, hashedKey)
+}
+```
+
+**第二步：获取条目**
+
+```go
+func (s *cacheShard) get(key string, hashedKey uint64) ([]byte, error) {
+	s.lock.RLock()                                    // 加锁
+	wrappedEntry, err := s.getWrappedEntry(hashedKey) // 获取包裹的条目
+	if err != nil {
+		s.lock.RUnlock()
+		return nil, err
+	}
+	if entryKey := readKeyFromEntry(wrappedEntry); key != entryKey {
+		s.lock.RUnlock()
+		s.collision()
+		if s.isVerbose {
+			s.logger.Printf("Collision detected. Both %q and %q have the same hash %x", key, entryKey, hashedKey)
+		}
+		return nil, ErrEntryNotFound
+	}
+	entry := readEntry(wrappedEntry)
+	s.lock.RUnlock()
+	s.hit(hashedKey)
+
+	return entry, nil
+}
+```
+
+通过hashedKey获取报告条目。
+
+```go
+func (s *cacheShard) getWrappedEntry(hashedKey uint64) ([]byte, error) {
+	itemIndex := s.hashmap[hashedKey]
+
+	if itemIndex == 0 {
+		s.miss()
+		return nil, ErrEntryNotFound
+	}
+
+	wrappedEntry, err := s.entries.Get(int(itemIndex))
+	if err != nil {
+		s.miss()
+		return nil, err
+	}
+
+	return wrappedEntry, err
+}
+```
+
+在通过包裹条目wrappendEntry获取entryKey对比key是否相等。在通过包裹条目wrappendEntry获取entry并返回
+
+###  
+
+
+
+### 分片+锁
+
+
+
+### map[uint64]uint32
+
+
+
+
+
+
+
+
+
+
+
 那 get 流程 get 流程其实就是说我们通过 key 来查找他们的 value 怎么会先计算出希，然后然后找到对应的分片，再找到卖，然后通过好这好几只在卖里面找到 byte 索引，找到索引过后再从二进再从 byte 数组里面去取出这个索引对应的 value 值，然后再把它再解析这个条目里面的 value 然后最终取得的 value 这是他的 get 流程。
+
 那我们回过头来看我们这个希这个开启，她为什么这样设计？他为什么要设计出分片？首先如果说我们这个不用开启，他如果说只有一个分片的话，它会导致一个问题，就是我们在并发读写的时候，我们如何保证数据一致？这其实你要保证数据证你就只能加锁，但加锁会降低我们的效率。
+
 如果说我们现在有 10 个人来，他 10 个人都需要访问这个速度，那么每个人都会在这里等待，它是串行执行的一个，执行完再交给下一个。但如果说我们把这个数据分片过后，我们 10 个人可能说他要查询的 key 他是不一样的，我们可以分散到不同的分片上，每个分片上带有自己的数。比如说我们 10 个人可能他需要 10 个人查询的 key 分，通过哈希过后可以分布到三个分片上，那么他在这一秒同时执行，这一秒他就可以同时执行这三个查询。而降低了我们的冲突。我们的并发冲突它就会提升更多的效率，它就会提升效率。所以说我们可以获得更大的查询和更低的延迟。
+
 然后还有一个就是他这里利用了一个 map 的结构 map 结构来存储具体数据的索引。为什么要这样设计？其实是因为如果我们用 map 直接存储数据的话，那么可能会因为我们这里只能存储类型的或者说这个东西它都属于是指针类型的。如果说我们存储了大量的条目过后，它就会导致我们的 GC 性，我们导致 GC 的会导致严重的 GC 耗时。我们通过这个我们通过一个时间可以看出，我们通过这个时间我们可以看出，如果说我们这个 map 结构如果存的是 string 类型或者说是指针类型，我说这个数值是我们这个 map 的值是存了 key 或 value 是存了指针类型的猫，它就会造成严重的 GC 问题，从而影响我们的查询速度，从而查询和延迟。
+
 为什么会导致这个问题？因为我们在 GC 的时候，这个 G GC 会取我们的 map 会把我们整个 map 扫描一遍。它扫描整个 map 的时候，它每一个 map 的结构它都会拿出来，然后判断一下他是否还有引用对吧。如果说他是指针，他又会判断一下他是否还有引用，他会去把每一个元素都扫了一遍，这样就会非常耗时。
+
 说我们的 map 结构里面存的是技术类型和 int float 布鲁布尔类型其实就在扫描的时候，他就会忽略他们，因为基础类型没有办法指向一个新的，他就会忽略他们的，然后降级我们的查询效果，降低我们的查询延时，从而提高我们的效率。这就是，别开启最。
 
 
+
+# 5W2H分析法
+
+1. who: 需要哪些人来做, 做这个产品的服务对象, 业务方是谁
+2. why: 为什么要做这个东西, 它的 价值 在哪里
+3. where: 这个产品最终在一个项目链路中在什么位置
+4. what: 实现这个产品需要做出哪些 功能
+5. how: 怎么去 实现 这些功能, 是否有效率更高的方法, 社区是否已经有成熟的解决方案.
+6. when: 需要多久搞定, 什么时候开始搞
+7. how much: 需要投入多少人/日
+
+**麦肯锡7步分析法**
+
+1. 描述问题
+2. 分析问题
+3. 剔除所有非关键问题
+4. 指定详细工作计划
+5. 进行实验分析
+6. 调研结果
+7. 教会别人
+
+
+
+学习方法论一：适合周期短，模块化，简单事物的学习如bigcache
+
+1. 这个问题、东西是什么？
+2. 这个东西解决了什么？
+   1. 这个东西怎么用
+3. 这个东西是怎么解决的？
+4. 为什么这个东西，方法可以解决，代价是啥，效率如何？
+5. 有没有其他的方式可以解决当前问题？
 
 
 
@@ -344,11 +707,55 @@ https://juejin.cn/post/7072121084136882183
 
 
 
+## 解决问题：循序渐进的方法
 
+**1.确定问题所在**
 
+首先最好确定需要解决的问题。
 
+这意味着花时间全面评估情况，**将症状与原因分开**。诊断的目的是了解痛点和原因。这需要时间，可能还要做些调研，揭示问题背后的潜在问题。
 
+**2.确定根本原因**
 
+确定问题所在之后，需要找出原因。
+
+- 背后的原因是什么？
+- 是什么原因导致的？
+- 可否将其定量或定性？
+- 核心层面发生了什么情况？
+
+因为在您努力解决问题过程中，您会想要找到一种可以治本而不只是治标的解决方案，对吧？  所以，这也需要花时间调查情况。收集信息，分析调查结果，并改进诊断。
+
+**3.找到多种解决方案**
+
+要成为优秀的问题解决者，需要打破常规，创造性地思考。不要满足于您找到的第一种解决方案。要全力以赴继续寻找。找到尽可能多的备选解决方案。然后再找一些。
+
+这可能意味着在不寻常的地方或从不寻常的来源寻找解决方案 - 与其他同事交流、保持开放的心态，或者乐于接受思想或观点的交流。无论如何，在确定一系列备选解决方案后，要对它们进行分析。
+
+**4.找到最有效的解决方案**
+
+这一点是否说起来容易，做起来难？并非如此。我们可以按逻辑进行处理。回答以下问题：
+
+- 此方案技术上是否可行？
+- 此方案是否可扩展？
+- 您是否拥有相应资源？
+- 有何风险？能否设法应对风险？
+- 您的解决方案是否会让尽可能多的人受益？
+- 效果可否进行衡量？如何衡量？
+
+**5.规划和实施解决方案**
+
+这部分也需要认真考虑。制定严密的计划来执行您的解决方案。  需要涵盖实施计划的人员、内容、时间和方式。
+
+同样重要的是，您需要考虑如何确定自己的解决方案是否成功，这就来到了最后一步。
+
+**6.衡量解决方案是否成功**
+
+如何根据您的目标进行衡量？是否已达到目标？是否控制在预算范围内？工作是否已完成？能否看到可衡量的结果？ 
+
+评估解决方案成功与否是至关重要也是经常被忽略的一步，因为它能清楚地展示您的解决方案是否正确，或者是否需要返回第一步重新来过。因为有效解决问题的一个关键环节是做好出错的准备，并从错误中吸取教训。
+
+请记住，所有问题都只是有待解开的谜题。练习使用上述六个步骤，培养解决问题的敏锐度，您会发现您的能力深受重视。
 
 
 
