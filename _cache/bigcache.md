@@ -200,7 +200,7 @@ type cacheShard struct {
 
 ![image-20220527173723689](./img/image-20220527173723689.png)
 
-当数据写入`bigcache`时候，通过`Key`值计算一个哈希值`(hashKey)`，然后通过`hashKey`去和他的分片数量取余找到对应的分片下标，然后获取对应的分片`(cacheShard)`
+当数据写入`bigcache`时候，通过`Key`值计算一个哈希值`(hashedKey)`，然后通过`hashKey`去和他的分片数量取余找到对应的分片下标，然后获取对应的分片`(cacheShard)`
 
 ```go
 func (c *BigCache) Set(key string) ([]byte, error) {
@@ -288,7 +288,7 @@ if previousIndex := s.hashmap[hashedKey]; previousIndex != 0 {
 }
 ```
 
-当存在`hash`冲突，则通过索引获取对应数据片段的引用并将该片段值置为空，并删除`hashmap`存储的索引；
+当存在`hash`冲突，则通过索引获取循环队列里对应数据片段的引用并将该片段值置为空，并删除`hashmap`存储的索引；
 
 ```go
 if previousIndex := s.hashmap[hashedKey]; previousIndex != 0 { 
@@ -304,7 +304,7 @@ if previousIndex := s.hashmap[hashedKey]; previousIndex != 0 {
 
 **第三步：剔除过期数据**
 
-检查`hash`冲突后，尝试剔除当前分片上的一条过期条目。首先从队列获取队尾数据（最老的条目），然后调用删除事件，并传入删除回调函数`removeOldestEntry`。
+检查`hash`冲突后，尝试剔除当前分片上最老的条目。首先从队列获取队尾数据（最老的条目），然后调用删除事件，并传入删除回调函数`removeOldestEntry`。
 
 ```go
 if oldestEntry, err := s.entries.Peek(); err == nil { // 尝试驱逐过期条目，触发删除回调
@@ -312,7 +312,7 @@ if oldestEntry, err := s.entries.Peek(); err == nil { // 尝试驱逐过期条�
 }
 ```
 
-删除事件会通过当前时间和条目的存储时间求差值，然后和全局统一过期设置做对比判断是否需要删除。
+删除事件会通过当前时间和条目的存储时间求差值，然后和全局统一过期设置`(liftwindow)`做对比判断是否需要删除。
 
 ```go
 // 驱逐
@@ -354,7 +354,7 @@ func (s *cacheShard) removeOldestEntry(reason RemoveReason) error {
 
 ![image-20220530135426295](./img/image-20220530135426295.png)
 
-尝试剔除一条旧条目后，开始包装条目，写入`buffer`；`buffer`是一个可复用的`[]byte`，可以减少内存分配。
+尝试剔除一条旧条目后，开始包装条目，写入`buffer`(`buffer`是一个可复用的`[]byte`，可以减少内存分配)；
 
 1. 写入当前时间`timestamp`占`8`位。
 2. 写入`hashedKey`占`8`位
@@ -404,7 +404,7 @@ for { // 循环尝试添加条目到切片末尾，添加失败尝试驱逐
 }
 ```
 
-包装好条目后，将条目写入到分片的队列里；写入队列成功后再在`hashmap`上建立`hashedKey`对应的索引(`offset`)并返回；添加失败，则尝试剔除旧数据，循环如上步骤。
+包装好条目后，将条目写入到分片的队列里；写入队列成功后再在`hashmap`上建立`hashedKey`对应的索引(`offset`)并返回；写入失败，则尝试剔除旧数据，循环如上步骤。
 
 ### 3-2.详细Get流程
 
@@ -490,7 +490,7 @@ func (s *cacheShard) getWrappedEntry(hashedKey uint64) ([]byte, error) {
 
 前两者很明显的缺点：
 
-1. 当 `map` 中存在大量 keys 时，`GC` 扫描 `map` 产生的停顿将不能忽略（针对 `map` 中存储带有指针类型的场景，列1）
+1. 当 `map` 中存在大量带有指针的keys 时，`GC` 扫描 `map` 产生的停顿将不能忽略（针对 `map` 中存储带有指针类型的场景，列1）
 2. 加锁的粒度不好控制
 
 ```go
@@ -678,10 +678,10 @@ s := []string{"abcd","abc","adca"}
 如何解决大量指针被扫描导致`GC`停顿：
 
 1. 导致`GC`停顿的主要原因是`map`内保存的指针太多，导致扫描一遍需要很长时间，那可以从减少指针使用入手。（代表：`Freecache`）
-1. 可以考虑让我们存储数据的结构直接不被扫描，那就不会有停顿了。因此可以通过自己申请管理内存，通过自己申请的内存 `GC` 就不会来管理这些内存，但堆外内存很容易产生内存泄漏（代表：`fastcache`）。
+1. 可以考虑让我们存储数据的结构直接不被扫描，那就不会有停顿了。因此可以自己申请的内存 ，`GC` 是不会来管理我们自己申请的内存的，但这些内存很容易产生内存泄漏（代表：`fastcache`）。
 2. 可以利用`Go 1.5`中修复的一个issue([#9477](https://github.com/golang/go/issues/9477)), 这个`issue`描述了Go的开发者优化了垃圾回收时对于`map`的处理，如果`map`对象中的`key`和`value`不包含指针，那么`GC` 便会忽略这个 `map`（代表：`bigcache`）
 
-`bigcache`通过`[ ]bytes+map[uint64]uint32`绕过了`GC`扫描，即使存储百万的缓存条目也非常快。
+`bigcache`通过`[ ]bytes+map[uint64]uint32`绕过了`GC`扫描，所以即使存储百万的缓存条目也非常快。
 
 ```go
 type cacheShard struct {
@@ -704,9 +704,9 @@ type BytesQueue struct {
 
 ####  3-3-2.分片降低并发冲突
 
-其次，降低访问效率的因素还有并发冲突问题，因为数据都是共享的要支持并发访问就要加锁，当有大量并发访问时，锁冲突会降低访问效率。
+通过`[ ]bytes+map[uint64]uint32`绕过了`GC`扫描后，还有一个降低访问效率的因素，那就是并发冲突问题，因为数据都是共享的要支持并发访问就要加锁，当有大量并发访问时，锁冲突会降低访问效率。
 
-针对该情况，我们要尽量避免冲突，降低并发冲突的一般方法就是数据分片。当写入数据时可以通过hash函数和取余运算，将数据分配到不同的分片上，每个分片都有各自的读写锁，各个分片互不影响，这大大降低了并发冲突。[测试代码](https://github.com/Zhouchaowen/Labs/blob/master/lab_gc/ch_4/map_test.go)
+针对该情况，我们要尽量避免冲突，降低并发冲突的一般方法就是数据分片。当写入数据时可以通过hash函数和取余运算，将数据分配到不同的分片上，每个分片都有各自的读写锁，各个分片互不影响，这样大大降低了并发冲突。[测试代码](https://github.com/Zhouchaowen/Labs/blob/master/lab_gc/ch_4/map_test.go)
 
 测试结果
 
@@ -736,11 +736,11 @@ BenchmarkSyncMap-4             1        41354979469 ns/op       2369064560 B/op 
 ### 4-2.缺点：
 
 1. 无持久化功能，只能用作单机缓存。
-2. `bigcache`只能等待清理最老的元素的时候把这些"虫洞"删除掉。
+2. 虫洞，只能等待清理最老的元素的时候才能把这些"虫洞"删除掉。
 3. 在添加一个元素失败后，会清理空间删除最老的元素。
 4. 还会专门有一个定时的清理`goroutine`, 负责移除过期数据。
-5. 缓存对象没有读取的时候刷新过期时间的功能，所以放入的缓存对象最终免不了过期的命运。
-6. 所有的缓存对象的`lifewindow`都是一样的，比如`30`分钟、两小时。
+5. 缓存条目没有读取的时候刷新过期时间的功能，所以放入的缓存条目最终都是会过期。
+6. 所有的缓存条目的过期周期都是一样的。
 
 
 
