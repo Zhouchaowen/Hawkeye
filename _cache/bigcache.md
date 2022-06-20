@@ -671,6 +671,11 @@ type StringHeader struct {
 
 ```go
 s := []string{"abcd","abc","adca"}
+for i,_ := range s{
+  fmt.Printf("%p\n",&s[i])
+  fmt.Printf("%p\n",unsafe.Pointer(uintptr(unsafe.Pointer(&s[i]))+uintptr(8)))
+  fmt.Println(*(*int)(unsafe.Pointer(uintptr(unsafe.Pointer(&s[i]))+uintptr(8))))
+}
 ```
 
 ![image-20220530155306178](./img/image-20220530155306179.png)
@@ -775,8 +780,6 @@ https://blog.csdn.net/weixin_33519829/article/details/112098752
 http://sarailqaq.org.cn/2020/12/06/%E8%BF%9B%E7%A8%8B%E5%86%85%E7%BC%93%E5%AD%98bigcache/
 
 https://go.cyub.vip/concurrency/sync-rwmutex.html
-
-
 
 
 
