@@ -110,7 +110,7 @@ import (
 func main() {
 	cache, _ := bigcache.NewBigCache(bigcache.Config{
 		Shards:             4,		// 分片数量
-		CleanWindow:        time.Second,  // 定时清除间隔
+		CleanWindow:        time.Second,  // 定时清除间隔 1s
 	})
 
 	// when
@@ -210,7 +210,8 @@ func (c *BigCache) Set(key string) ([]byte, error) {
 }
 
 func (c *BigCache) getShard(hashedKey uint64) (shard *cacheShard) {
-	return c.shards[hashedKey&c.shardMask]
+    // shardMask 111111111111
+    return c.shards[hashedKey&c.shardMask] // shardMask = len(shards)-1  
 }
 ```
 
@@ -235,7 +236,7 @@ func (c *BigCache) Set(key string, entry []byte) error {
 
 ![image-20220530114601342](./img/image-20220530114601342.png)
 
-首先创建一个`cache`实例，通过`Set`写入`key, value`：
+1.首先创建一个`cache`实例，通过`Set`写入`key, value`：
 
 ```go
 // given
@@ -245,13 +246,13 @@ cache, _ := NewBigCache(DefaultConfig(5 * time.Second))
 cache.Set("key", []byte("value"))
 ```
 
-通过`hash`函数获取`key`的哈希值`hashedKey`：
+2.通过`hash`函数获取`key`的哈希值`hashedKey`：
 
 ```go
 hashedKey := c.hash.Sum64(key)
 ```
 
-通过`hashedKey`和分片个数 & 获取对应分片，由图可知我们找到`3`号分片。
+3.通过`hashedKey`和分片个数 & 获取对应分片，由图可知我们找到`3`号分片。
 
 ```go
 func (c *BigCache) getShard(hashedKey uint64) (shard *cacheShard) {
@@ -304,7 +305,7 @@ if previousIndex := s.hashmap[hashedKey]; previousIndex != 0 {
 
 **第三步：剔除过期数据**
 
-检查`hash`冲突后，尝试剔除当前分片上最老的条目。首先从队列获取队尾数据（最老的条目），然后调用删除事件，并传入删除回调函数`removeOldestEntry`。
+检查`hash`冲突后，尝试剔除当前分片上最老的条目。首先从获取队尾数据（最老的条目），然后调用删除事件，并传入删除回调函数`removeOldestEntry`。
 
 ```go
 if oldestEntry, err := s.entries.Peek(); err == nil { // 尝试驱逐过期条目，触发删除回调
@@ -683,7 +684,7 @@ for i,_ := range s{
 如何解决大量指针被扫描导致`GC`停顿：
 
 1. 导致`GC`停顿的主要原因是`map`内保存的指针太多，导致扫描一遍需要很长时间，那可以从减少指针使用入手。（代表：`Freecache`）
-1. 可以考虑让我们存储数据的结构直接不被扫描，那就不会有停顿了。因此可以自己申请的内存 ，`GC` 是不会来管理我们自己申请的内存的，但这些内存很容易产生内存泄漏（代表：`fastcache`）。
+1. 可以考虑让我们存储数据的结构直接不被扫描，那就不会有停顿了。因此可以自己申请内存 ，`GC` 是不会来管理我们自己申请的内存的，但这些内存很容易产生内存泄漏（代表：`fastcache`）。
 2. 可以利用`Go 1.5`中修复的一个issue([#9477](https://github.com/golang/go/issues/9477)), 这个`issue`描述了Go的开发者优化了垃圾回收时对于`map`的处理，如果`map`对象中的`key`和`value`不包含指针，那么`GC` 便会忽略这个 `map`（代表：`bigcache`）
 
 `bigcache`通过`[ ]bytes+map[uint64]uint32`绕过了`GC`扫描，所以即使存储百万的缓存条目也非常快。
@@ -729,7 +730,7 @@ BenchmarkSyncMap-4             1        41354979469 ns/op       2369064560 B/op 
 
 ## 4.总结
 
-### 4-1.优点：
+### 4-1.优点
 
 1. 他支持存储百万的缓存条目也非常快。
 2. 支持大并发访问。
@@ -738,12 +739,12 @@ BenchmarkSyncMap-4             1        41354979469 ns/op       2369064560 B/op 
 
 
 
-### 4-2.缺点：
+### 4-2.缺点
 
-1. 无持久化功能，只能用作单机缓存。
+1. 无持久化功能，只能用作单机缓存,掉电缓存就消失了。
 2. 虫洞，只能等待清理最老的元素的时候才能把这些"虫洞"删除掉。
-3. 在添加一个元素失败后，会清理空间删除最老的元素。
-4. 还会专门有一个定时的清理`goroutine`, 负责移除过期数据。
+3. 在添加一个元素失败后，会清理空间，删除最老的元素。
+4. 还会专门有一个定时的清理`goroutine`, 负责标注过期数据。
 5. 缓存条目没有读取的时候刷新过期时间的功能，所以放入的缓存条目最终都是会过期。
 6. 所有的缓存条目的过期周期都是一样的。
 
